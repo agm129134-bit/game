@@ -12,13 +12,17 @@ public class TrashMinigame : MonoBehaviour
         public Sprite sprite;
         public Sprite nextImage;
         public TrashCategory category;
+        
+        // 🌟 縮放功能：讓筷子變大就靠這格
+        [Range(0.1f, 5f)] 
+        public float imageScale; 
     }
 
     [Header("UI 與物件設定")]
     public GameObject minigameUI;
     public Canvas mainCanvas;
     public DraggableTrash currentTrashObj; 
-    public Image nextTrashPreview;         
+    public Image nextTrashPreview;          
     public Vector2 trashSpawnPosition = new Vector2(0, -250f); 
 
     [Header("隱形判定區 (垃圾桶位置)")]
@@ -28,13 +32,9 @@ public class TrashMinigame : MonoBehaviour
     public float snapDistance = 100f; 
 
     [Header("自訂垃圾庫與數量")]
-    [Tooltip("這個垃圾袋要產生幾個垃圾？(現在可以超過題庫數量囉！)")]
     public int requiredTrashCount = 10; 
-    
-    [Tooltip("把你所有種類的垃圾放在這裡當作『總題庫』")]
     public TrashData[] allTrash;      
 
-    // 系統會自動生成的「本局考卷清單」
     private TrashData[] currentSessionTrash;
     private int currentTrashIndex = 0;
 
@@ -46,8 +46,8 @@ public class TrashMinigame : MonoBehaviour
 
     [Header("音效設定")]
     public AudioSource audioSource;
-    public AudioClip correctSound;   // 丟進正確垃圾桶的音效
-    public AudioClip wrongSound;     // 丟進錯誤垃圾桶的音效
+    public AudioClip correctSound;   
+    public AudioClip wrongSound;     
     public AudioClip gameClearSound; 
 
     private bool isPlayerInRange = false;
@@ -55,10 +55,11 @@ public class TrashMinigame : MonoBehaviour
 
     void Update()
     {
+        // 確保玩家與腳本都還在才進行邏輯判斷
+        if (this == null || playerTransform == null) return;
+
         if (isPlayerInRange && !isPlaying && Input.GetKeyDown(KeyCode.F))
         {
-            // 🛑 【第一道鎖：檢查紅綠燈】
-            // 如果這一瞬間已經有其他道具被撿起或小遊戲被開啟，我立刻退下！
             if (PickableItem.lastInteractFrame == Time.frameCount) return;
 
             bool amIClosest = true;
@@ -68,7 +69,7 @@ public class TrashMinigame : MonoBehaviour
             
             foreach (Collider2D obj in nearbyObjects)
             {
-                if (obj.isTrigger && obj.gameObject != this.gameObject)
+                if (obj != null && obj.isTrigger && obj.gameObject != this.gameObject)
                 {
                     float otherDistance = Vector2.Distance(playerTransform.position, obj.transform.position);
                     if (otherDistance < myDistance)
@@ -81,14 +82,12 @@ public class TrashMinigame : MonoBehaviour
 
             if (amIClosest)
             {
-                // 🌟 【第二道鎖：搶下紅綠燈】
-                // 確定我是離玩家最近的垃圾堆了！馬上把燈按亮，不准其他腳本搶 F 鍵！
                 PickableItem.lastInteractFrame = Time.frameCount;
-
                 StartNewGame();
             }
         }
 
+        // 大魚警告邏輯，加上安全檢查
         if (isPlaying && bigFishTransform != null && playerTransform != null && whiteFrameUI != null)
         {
             float distance = Vector2.Distance(playerTransform.position, bigFishTransform.position);
@@ -98,7 +97,7 @@ public class TrashMinigame : MonoBehaviour
 
     private void StartNewGame()
     {
-        if (allTrash == null || allTrash.Length == 0) return;
+        if (allTrash == null || allTrash.Length == 0 || minigameUI == null) return;
 
         minigameUI.SetActive(true);
         isPlaying = true;
@@ -124,38 +123,48 @@ public class TrashMinigame : MonoBehaviour
     public void CloseAndResetMinigame()
     {
         isPlaying = false;
-        minigameUI.SetActive(false);
+        if (minigameUI != null) minigameUI.SetActive(false);
         currentTrashIndex = 0;
     }
 
     private void LoadTrash()
     {
+        // 👻 抓鬼第一站：物件還在嗎？
+        if (this == null || currentTrashObj == null) return;
+
         if (currentTrashIndex < requiredTrashCount)
         {
-            // 單純換圖片就好，不要用程式碼強制改變它的大小
-            currentTrashObj.GetComponent<Image>().sprite = currentSessionTrash[currentTrashIndex].sprite;
+            TrashData currentData = currentSessionTrash[currentTrashIndex];
+            Image trashImg = currentTrashObj.GetComponent<Image>();
+
+            if (trashImg != null)
+            {
+                trashImg.sprite = currentData.sprite;
+                // 🌟 設定縮放 (保護機制：如果忘記設 Scale，自動當作 1)
+                float s = currentData.imageScale > 0.01f ? currentData.imageScale : 1f;
+                currentTrashObj.transform.localScale = Vector3.one * s;
+            }
+
             currentTrashObj.ResetPosition(trashSpawnPosition); 
             currentTrashObj.gameObject.SetActive(true);
 
-            if (currentTrashIndex + 1 < requiredTrashCount)
+            // 預告圖更新
+            if (currentTrashIndex + 1 < requiredTrashCount && nextTrashPreview != null)
             {
-                Sprite nextSp = currentSessionTrash[currentTrashIndex + 1].nextImage;
-                if (nextSp == null) nextSp = currentSessionTrash[currentTrashIndex + 1].sprite;
+                TrashData nextData = currentSessionTrash[currentTrashIndex + 1];
+                Sprite nextSp = nextData.nextImage != null ? nextData.nextImage : nextData.sprite;
 
-                if (nextSp == null)
-                {
-                    Debug.LogError("🚨 抓到空包彈了！下一個要出現的【" + currentSessionTrash[currentTrashIndex + 1].category + "】類垃圾完全沒有放圖片！快去檢查清單！");
-                }
-
-                // 預告區也是單純換圖片就好
                 nextTrashPreview.sprite = nextSp;
+                
+                // 🌟 預告圖也跟著縮放，才不會變形
+                float ns = nextData.imageScale > 0.01f ? nextData.imageScale : 1f;
+                nextTrashPreview.transform.localScale = Vector3.one * ns;
                 
                 if (nextTrashPreview.transform.parent != null)
                     nextTrashPreview.transform.parent.gameObject.SetActive(true);
-                    
                 nextTrashPreview.gameObject.SetActive(true);
             }
-            else
+            else if (nextTrashPreview != null)
             {
                 if (nextTrashPreview.transform.parent != null)
                     nextTrashPreview.transform.parent.gameObject.SetActive(false);
@@ -171,107 +180,105 @@ public class TrashMinigame : MonoBehaviour
 
     public void CheckDrop(DraggableTrash trashObj, Vector2 dropPos, Vector2 startPos)
     {
+        if (currentSessionTrash == null || currentTrashIndex >= currentSessionTrash.Length) return;
+
         TrashCategory requiredCategory = currentSessionTrash[currentTrashIndex].category;
         bool isCorrect = false;
         bool isDroppedInAnyBin = false;
 
-        Vector2 trashPos = trashObj.transform.localPosition;
-        Vector2 generalPos = generalBinTarget.localPosition;
-        Vector2 plasticPos = plasticBinTarget.localPosition;
-        Vector2 paperPos = paperBinTarget.localPosition;
+        // 安全取得座標
+        if (trashObj == null || generalBinTarget == null || plasticBinTarget == null || paperBinTarget == null) return;
 
-        if (Vector2.Distance(trashPos, generalPos) <= snapDistance)
+        Vector2 trashPos = trashObj.transform.localPosition;
+
+        if (Vector2.Distance(trashPos, generalBinTarget.localPosition) <= snapDistance)
         {
             isDroppedInAnyBin = true;
             if (requiredCategory == TrashCategory.General) isCorrect = true;
         }
-        else if (Vector2.Distance(trashPos, plasticPos) <= snapDistance)
+        else if (Vector2.Distance(trashPos, plasticBinTarget.localPosition) <= snapDistance)
         {
             isDroppedInAnyBin = true;
             if (requiredCategory == TrashCategory.Plastic) isCorrect = true;
         }
-        else if (Vector2.Distance(trashPos, paperPos) <= snapDistance)
+        else if (Vector2.Distance(trashPos, paperBinTarget.localPosition) <= snapDistance)
         {
             isDroppedInAnyBin = true;
             if (requiredCategory == TrashCategory.Paper) isCorrect = true;
         }
 
-        // 🎵 音效觸發區
         if (isCorrect)
         {
-            PlaySound(correctSound); // 答對音效
+            PlaySound(correctSound); 
             currentTrashIndex++; 
             LoadTrash();         
         }
         else if (isDroppedInAnyBin)
         {
-            PlaySound(wrongSound);   // 答錯音效
+            PlaySound(wrongSound);   
             trashObj.ResetPosition(startPos); 
         }
         else
         {
-            // 如果丟在外面（沒丟進垃圾桶），就不發出聲音，直接彈回原位
             trashObj.ResetPosition(startPos); 
         }
     }
 
- private void FinishMinigame()
+    private void FinishMinigame()
     {
         isPlaying = false;
         if (currentTrashObj != null) currentTrashObj.gameObject.SetActive(false);
+        
         PlaySound(gameClearSound);
 
-        // ==========================================
-        // 🌟 【修改】改成回報「我分完一個垃圾袋了！」
-        // ==========================================
         if (GameManager.Instance != null)
         {
-            GameManager.Instance.OnTrashBagSorted(); // <-- 換成呼叫這個！
+            GameManager.Instance.OnTrashBagSorted();
         }
 
-        StartCoroutine(CloseAfterDelay());
+        // 👻 抓鬼關鍵：使用協程前確保物件還沒被 Destroy
+        if (this.gameObject.activeInHierarchy)
+        {
+            StartCoroutine(CloseAfterDelay());
+        }
     }
     
     private IEnumerator CloseAfterDelay()
     {
         yield return new WaitForSeconds(0.3f);
-        if (minigameUI != null) minigameUI.SetActive(false);
-        gameObject.SetActive(false); 
+        
+        // 👻 結束前最後檢查一次，避免報錯
+        if (this != null && minigameUI != null) 
+        {
+            minigameUI.SetActive(false);
+            gameObject.SetActive(false); 
+        }
     }
 
-    // 終極防錯播放器：完全不用在 Inspector 拉喇叭了！
     private void PlaySound(AudioClip clip)
     {
-        if (clip != null)
-        {
-            // 1. 每次需要聲音時，直接在場景裡召喚一個「隱形播音員」
-            GameObject soundPlayer = new GameObject("TempSoundPlayer");
-            AudioSource tempSource = soundPlayer.AddComponent<AudioSource>();
+        if (clip == null) return;
 
-            // 2. 把音效檔交給他，並設定隨機音高
-            tempSource.clip = clip;
-            tempSource.pitch = Random.Range(0.9f, 1.1f);
-            
-            // 3. ✨ 最重要的一步：強制設為 2D 音效 (0)，保證無論在哪裡都超級大聲清楚！
-            tempSource.spatialBlend = 0f; 
-            tempSource.volume = 1f;
-
-            // 4. 開始播放
-            tempSource.Play();
-
-            // 5. 播完之後，這個隱形播音員就會自動消失，完全不佔用效能
-            Destroy(soundPlayer, clip.length + 0.1f);
-        }
+        GameObject soundPlayer = new GameObject("TempSoundPlayer");
+        AudioSource tempSource = soundPlayer.AddComponent<AudioSource>();
+        tempSource.clip = clip;
+        tempSource.pitch = Random.Range(0.9f, 1.1f);
+        tempSource.spatialBlend = 0f; 
+        tempSource.volume = 1f;
+        tempSource.Play();
+        
+        // 播完後銷毀音效物件
+        Destroy(soundPlayer, clip.length + 0.1f);
     }
 
     private void OnTriggerEnter2D(Collider2D other)
     {
-        if (other.CompareTag("Player")) isPlayerInRange = true;
+        if (other != null && other.CompareTag("Player")) isPlayerInRange = true;
     }
 
     private void OnTriggerExit2D(Collider2D other)
     {
-        if (other.CompareTag("Player"))
+        if (other != null && other.CompareTag("Player"))
         {
             isPlayerInRange = false;
             if (isPlaying) CloseAndResetMinigame();

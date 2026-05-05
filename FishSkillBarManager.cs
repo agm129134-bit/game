@@ -65,9 +65,11 @@ public class FishSkillBarManager : MonoBehaviour
     [Tooltip("🌟 罰的冷卻時間 (10 秒)")]
     public float punishCooldown = 10f;
     
-    // 🌟 【新增】攻擊範圍設定！
     [Tooltip("🌟 罰的攻擊範圍 (大魚跟玩家距離多近才能打到？)")]
     public float punishRange = 2.5f; 
+    
+    [Tooltip("🌟 攻擊動畫播放時間 (秒)，這段時間大魚會停在原地吐舌頭")]
+    public float punishAnimDuration = 0.5f;
 
     [Tooltip("請把大魚『罰』的攻擊音效拖進來")]
     public AudioClip punishSound;
@@ -238,25 +240,26 @@ public class FishSkillBarManager : MonoBehaviour
     }
 
     // ==========================================
-    // ⚡ 直接「罰！」扣血的專用接口 (加入距離判斷)
+    // ⚡ 直接「罰！」扣血的專用接口 
     // ==========================================
     public void ClickToPunish()
     {
         // 1. 檢查罰的冷卻時間到了沒
         if (punishCurrentCD <= 0)
         {
-            // 🌟 只要按了按鈕，就一定會發動招式 (進入冷卻、變換圖片、播放音效)
+            // 只要按了按鈕，就一定會發動招式 (進入冷卻、變換圖片、播放音效)
             punishCurrentCD = punishCooldown;
             if (buttonBaseImage != null && cooldownSprite != null) buttonBaseImage.sprite = cooldownSprite;
             if (punishSound != null && audioSource != null) audioSource.PlayOneShot(punishSound);
 
-            // 🌟 2. 判斷人類有沒有在攻擊範圍內
+            // 呼叫播放大魚攻擊動畫的協程
+            StartCoroutine(PlayPunishAnimationRoutine());
+
+            // 2. 判斷人類有沒有在攻擊範圍內
             if (humanTransform != null && fishTransform != null)
             {
-                // 計算大魚與人類之間的直線距離
                 float distance = Vector2.Distance(fishTransform.position, humanTransform.position);
                 
-                // 如果距離小於等於我們設定的攻擊範圍
                 if (distance <= punishRange)
                 {
                     if (GameManager.Instance != null)
@@ -265,10 +268,19 @@ public class FishSkillBarManager : MonoBehaviour
                         GameManager.Instance.TakeDamage(targetPlayerId);
                         Debug.Log($"⚡ 大魚發動了『罰』！命中玩家，扣除一滴血！(目前距離: {distance})");
                     }
+
+                    // ==========================================
+                    // 🌟 【新增】呼叫人類身上的 TakeDamage，觸發受傷動畫！
+                    // ==========================================
+                    PlayerMovement playerMov = humanTransform.GetComponent<PlayerMovement>();
+                    if (playerMov != null)
+                    {
+                        // 把大魚的位置 (fishTransform) 傳過去，讓人知道從哪邊被打
+                        playerMov.TakeDamage(fishTransform);
+                    }
                 }
                 else
                 {
-                    // 人類躲開了！揮空！
                     Debug.Log($"💨 大魚發動了『罰』！但是揮空了...(目前距離 {distance}，超過了攻擊範圍 {punishRange})");
                 }
             }
@@ -281,5 +293,40 @@ public class FishSkillBarManager : MonoBehaviour
         {
              Debug.Log("『罰』還在冷卻中！");
         }
+    }
+
+    // ==========================================
+    // 🎬 播放攻擊動畫與時間暫停魔法
+    // ==========================================
+    private IEnumerator PlayPunishAnimationRoutine()
+    {
+        if (fishTransform == null) yield break;
+
+        Animator fishAnimator = fishTransform.GetComponent<Animator>();
+        MonoBehaviour fishMovement = fishTransform.GetComponent("FishMovement") as MonoBehaviour;
+
+        // 1. 🛑 鎖定狀態：暫時關閉大魚的移動腳本，讓牠停下來專心咬人！
+        if (fishMovement != null) fishMovement.enabled = false;
+
+        // 2. 判斷方向並播放動畫
+        if (fishAnimator != null)
+        {
+            string animName = "Fish_Attack_L"; // 預設向左咬
+            
+            // 如果玩家在大魚的右邊，就向右咬
+            if (humanTransform != null && humanTransform.position.x > fishTransform.position.x)
+            {
+                animName = "Fish_Attack_R";
+            }
+            
+            // 強制大腦播放吐舌頭動畫
+            fishAnimator.Play(animName);
+        }
+
+        // 3. ⏳ 等待動畫播完
+        yield return new WaitForSeconds(punishAnimDuration);
+
+        // 4. 🟢 解除鎖定：重新開啟大魚的移動腳本，繼續追殺！
+        if (fishMovement != null) fishMovement.enabled = true;
     }
 }
